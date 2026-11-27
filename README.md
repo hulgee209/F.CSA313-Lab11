@@ -122,3 +122,100 @@ PIT-ийн `mutations.xml`-ээс SURVIVED мутант бүрийг гарга�
 бөгөөд B1+B2-ийн дараа 63/63 бүгд алагдсан нь энэ ангиллыг баталж байна.
 
 ---
+
+## Хэсэг B — Тестүүдээ хүчтэй болгох
+
+### B1 — Яг утгын assertion
+
+Оролтын утгуудыг starter-тэй **ижил** үлдээж, зөвхөн assertion-уудыг сольсон:
+
+| Starter | B1 |
+|---|---|
+| `assertNotNull(calc.letterGrade(95))` | `assertEquals("A", calc.letterGrade(95))` (B, C, D, F мөн адил) |
+| `assertTrue(g1 >= 0 && g1 <= 4)` | `assertEquals(3.5, calc.gpa(new double[]{95, 85}), EPS)` гэх мэт |
+| `assertTrue(s1 >= 0 && s1 <= 100)` | `assertEquals(100, calc.scholarship(3.9, 16, false))` гэх мэт |
+
+### B2 — Зааг утга ба хослолын тестүүд
+
+- `letterGrade_boundaries` (parameterized, 10 тохиолдол): 100, 90/89.99, 80/79.99, 70/69.99, 60/59.99, 0.
+- `letterGrade_justOutsideRange_throws`: -0.01, 100.01.
+- `gpa_singleLetter_exactPoints` (5): switch-ийн A/B/C/D/F үсэг тус бүр; `gpa_mixedAllLetters_exactAverage`; `gpa_invalidScoreInside_throws`.
+- `scholarship_boundariesAndCombinations` (15): 3.8/15, 3.79/15, 3.8/14, 3.4/12, 3.39/12, 3.4/11, 3.0/0, 2.99/20,
+  gpa 0 ба 4, credits 0, мөн `&&`-ийн зөвхөн нэг хэсэг биелэх хослолууд (3.5/16, 3.9/14, 3.1/13, 3.5/11).
+- `scholarship_violationAlwaysZero`: зааг дээрх оюутан ч зөрчилтэй бол 0.
+- `scholarship_outOfRangeInputs_throw`: gpa -0.01 ба 4.01, credits -1, сөрөг gpa + зөрчил.
+
+### Гурван хэмжилтийн явц
+
+```bash
+mvn test-compile org.pitest:pitest-maven:mutationCoverage 2>&1 | tee results/pit-B1.txt   # B1-ийн дараа
+mvn test-compile org.pitest:pitest-maven:mutationCoverage 2>&1 | tee results/pit-B2.txt   # B2-ийн дараа
+```
+
+| Хэмжилт | Файл | `>> Generated … Killed …` мөр | Test strength | Амьд |
+|---|---|---|---|---|
+| Эхлэл | [results/pit-start.txt](results/pit-start.txt) | `>> Generated 63 mutations Killed 17 (27%)` | 27% | 46 |
+| B1-ийн дараа | [results/pit-B1.txt](results/pit-B1.txt) | `>> Generated 63 mutations Killed 45 (71%)` | 71% | 18 |
+| B2-ийн дараа (эцсийн) | [results/pit-B2.txt](results/pit-B2.txt) | `>> Generated 63 mutations Killed 63 (100%)` | 100% | 0 |
+
+- B1 нь +28 мутант алсан: бүх "replaced return value", "removed conditional → false", math, switch мутантууд — сул assertion-ыг илрүүлдэг төрлүүд.
+- B1-ийн дараа үлдсэн 18 нь бүгд "changed conditional boundary" (13) ба `&&`/хязгаарын "removed conditional → true" (5) — оролтын утга өөр байхгүй бол яг утгын assertion ч тэдгээрийг барьж чадахгүй. B2 эдгээрийг бүгдийг алсан.
+- Эцсийн JaCoCo ([results/jacoco-final.csv](results/jacoco-final.csv)): Line 25/25, **Branch 41/41** (starter-т 38/41 байсан).
+
+**Эцсийн PIT тайлан:**
+
+![PIT final](images/pit-final.png)
+
+---
+
+## Хэсэг C — Гараар нэг мутант (PIT-гүйгээр)
+
+### Гар мутант: мөр 52 `gpa >= 3.8` → `gpa > 3.8`
+
+```bash
+# мөр 52-ийг гараар өөрчилсөн: if (gpa > 3.8 && credits >= 15) return 100;
+mvn test 2>&1 | tee results/mvn-test-manual-mutant.txt
+git restore src/main      # анхны кодыг сэргээсэн — мутацитай кодыг commit хийгээгүй
+```
+
+Үр дүн ([results/mvn-test-manual-mutant.txt](results/mvn-test-manual-mutant.txt)):
+
+```
+[ERROR] Tests run: 41, Failures: 1, Errors: 0, Skipped: 0
+[ERROR] mn.edu.must.sqat.ScholarshipCalculatorTest.scholarship_boundariesAndCombinations(double, int, int)[1]
+org.opentest4j.AssertionFailedError: expected: <100> but was: <70>
+[ERROR]   ScholarshipCalculatorTest.scholarship_boundariesAndCombinations:156 expected: <100> but was: <70>
+```
+
+- **Унасан тест:** `scholarship_boundariesAndCombinations` — 1-р тохиолдол `"3.8, 15, 100"` (B2-д нэмсэн яг заагийн тест).
+- Мутацитай кодонд яг 3.8 голчтой оюутан эхний дүрмийг давахгүй, 70% авна → `expected: <100> but was: <70>`.
+- Бусад 40 тест давсан: 3.9/16 ба 4.0/15 нь заагаас дээш тул `>` ба `>=` ялгаагүй. Starter-ийн багцад энэ мутант амьд үлдэх байсан (3.9 л шалгадаг, тэгээд `assertTrue(мужид)`).
+
+### Өөрийн equivalent мутант: мөр 31 `scores.length == 0` → `scores.length <= 0`
+
+```java
+if (scores == null || scores.length <= 0) {   // анх: scores.length == 0
+```
+
+Java-д массивын урт хэзээ ч сөрөг байж чадахгүй (`length >= 0` нь JVM-ийн баталгаа), тиймээс `length <= 0` ба
+`length == 0` нь бүх боломжит оролт дээр яг ижил true/false өгнө. Ажиглагдах зан төлөв (буцаах утга, exception)
+огт өөрчлөгдөхгүй тул ямар ч тест — хэдий хүчтэй байсан ч — энэ мутантыг алж чадахгүй; энэ бол жинхэнэ equivalent мутант.
+
+Баталгаа ([results/mvn-test-equivalent-mutant.txt](results/mvn-test-equivalent-mutant.txt)): мутацитай кодон дээр
+`Tests run: 41, Failures: 0, Errors: 0` — `BUILD SUCCESS`. Дараа нь мөн `src/main`-ийг буцаасан.
+
+---
+
+## Дүгнэлт
+
+Line/Branch хамралт нь тест кодын аль мөр, аль салааг *ажиллуулсныг* хэмждэг бол mutation score нь тест тэр кодын
+*алдааг барьж чадах эсэхийг* хэмждэг. Энэ лабын starter багц JaCoCo-д Line 100% харагдаж байсан ч PIT-ээр зөвхөн 27%
+мутант алсан нь assertion-гүй, эсвэл `assertNotNull`/муж шалгах сул assertion-тай тест "ногоон" боловч хамгаалалт
+бараг өгдөггүйг тодорхой харуулав. Assertion-уудыг яг утгын болгосон (B1) нь score-ийг 27% → 71% болгож, сул шалгалт
+хамгийн том сул тал байсныг харуулсан. Үлдсэн мутантууд бүгд зааг утгын болон `&&` хослолын мутант байсан тул тэдгээрийг
+зөвхөн зорилтот оролт (3.8/15, 90/89.99, 0 гэх мэт) нэмж (B2) алсан, эцэст нь 63/63 (100%), Branch 41/41 болсон.
+AI-гаар тест бичүүлэхэд тэр нь ихэвчлэн кодыг "ажиллуулдаг", хамралт өндөртэй боловч assertion нь сул эсвэл кодын
+одоогийн үр дүнг хуулсан тест гаргадаг тул хамралтын тоо нь чанарын баталгаа болж чадахгүй. Mutation testing нь
+кодонд жижиг алдаа тарьж, тест тэдгээрийг барьж байгаа эсэхийг объектив шалгадаг тул AI-ийн бичсэн тестийн бодит
+хүчийг хэмжих, амьд үлдсэн мутантаар нь дутуу тестийг тодорхой зааж өгөх хамгийн найдвартай арга юм.
+Equivalent мутант байж болох ч (Хэсэг C) ховор тул амьд мутантыг эхлээд "тест дутуу" гэж үзэх нь зөв хандлага.
